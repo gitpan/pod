@@ -1,0 +1,120 @@
+
+X<>
+
+=pod
+
+=head1 this is head1
+
+sdf
+
+=head2 green eggs
+
+fdd
+
+=head3 this is head3
+
+text above should be script.
+
+C<this is a big block of code>
+
+X<this is an index>
+
+
+S<one for
+the money
+two fwo
+the show
+three to 
+get ready
+and four 
+to go>
+
+
+
+=pod
+
+
+	even though it doesn't look like it.
+
+	text below should be scriptive.
+
+
+=cut
+
+
+this should be a link L<click|"green eggs"> to head2
+
+
+=head1 this I< should > be a filename F<junk> to junk
+
+if ( $a <=> $b ) { print junk }
+
+
+=over 4
+
+=item *
+
+ITEMNAMEHERE
+
+=item *
+
+ITEMNAMEHERE
+
+=back
+
+		'',
+
+and some more text here.
+
+		[Command => 'Header1', -command => 
+			sub{ $textwindow->insert('insert linestart', 
+				'=head1 HEADERNAMEHERE '); }
+		],
+
+		[Command => 'Header2', -command => 
+			sub{ $textwindow->insert('insert linestart', 
+				'=head2 HEADERNAMEHERE '); }
+		],
+
+
+
+
+
+
+
+=over 4
+
+=item *
+
+First item
+
+=item *
+
+Second item
+
+=back
+
+=over 4
+
+=item Foo()
+
+Description of Foo function
+
+=item Bar()
+
+Description of Bar function
+
+=back
+
+  
+
+=cut
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,751 @@
+#!/usr/bin/perl -w
+
+###############################################################################
+# Copyright (c) 1999  Greg London
+# Copyright (c) 2003  Greg London
+# All rights reserved.
+# This program is free software.
+# You can redistribute it and/or modify it under the same terms as Perl itself.
+###############################################################################
+
+###############################################################################
+# This is a perl application, called gedi, implementing a text editor.
+# gedi is short for Greg's EDItor. The "g" being pronounced like a "j".
+###############################################################################
+
+
+require 5;
+use locale;
+use strict;  
+
+use Tk;
+use Tk::widgets qw(TextEdit);
+use File::Basename;
+
+
+##############################################
+##############################################
+## input parameters have been filtered.
+## set up three frames to put everything into.
+## menu_frame, text_frame, counter_frame
+##############################################
+##############################################
+my $top = MainWindow->new();
+
+# my $menu_frame = $top->Frame->pack(-anchor=>'nw');
+my $text_frame = $top->Frame->pack
+	(-anchor=>'nw', expand=>'yes', -fill => 'both'); # autosizing
+my $counter_frame = $top->Frame->pack(-anchor=>'nw');
+
+##############################################
+##############################################
+## now set up text window with contents.
+##############################################
+##############################################
+
+## autosizing is set up such that when the outside window is 
+## resized, the text box adjusts to fill everything else in.
+## the text frame and the text window in the frame are both 
+## set up for autosizing.
+
+my $textwindow = $text_frame->Scrolled(
+	'TextEdit',
+	exportselection => 'true',  # 'sel' tag is associated with selections
+	# initial height, if it isnt 1, then autosizing fails 
+	# once window shrinks below height
+	# and the line counters go off the screen.
+	# seems to be a problem with the Tk::pack command;
+	height => 1, 	 
+	-background => 'white',
+	-wrap=> 'none', 
+	-setgrid => 'true', # use this for autosizing
+	-scrollbars =>'se')
+	-> pack(-expand => 'yes' , -fill => 'both');	# autosizing
+
+#$textwindow->FileName($global_filename);
+
+
+$top->protocol('WM_DELETE_WINDOW'=>
+ sub{$textwindow->ConfirmExit;} 
+ );
+
+$SIG{INT} = sub {$textwindow->ConfirmExit;};
+
+##############################################
+##############################################
+## set up current line number display
+##############################################
+##############################################
+my $current_line_label = $counter_frame
+	-> Label(text=>'line: 1') 
+	-> grid(-row=>1,-column=>1, -sticky=>'nw' );
+
+my $total_line_label = $counter_frame
+	-> Label(text=>'total lines: 1') 
+	-> grid(-row=>2,-column=>1, -sticky=>'nw' );
+
+my $current_column_label = $counter_frame
+	-> Label(text=>'column: 0') 
+	-> grid(-row=>3,-column=>1, -sticky=>'nw' );
+
+my $insert_overstrike_mode_label = $counter_frame
+	-> Label(text=>' ') 
+	-> grid(-row=>5,-column=>1, -sticky=>'nw' );
+
+sub update_indicators
+{
+	my ($line,$column)= split(/\./,$textwindow->index('insert'));
+	$current_line_label->configure (text=> "line: $line");
+	$current_column_label->configure (text=> "column: $column");
+
+	my ($last_line,$last_col) = split(/\./,$textwindow->index('end'));
+	$total_line_label->configure (text=> "total lines: $last_line");
+
+	my $mode = $textwindow->OverstrikeMode;
+	my $overstrke_insert='Insert Mode';
+	if ($mode) 
+		{$overstrke_insert='Overstrike Mode';}
+	$insert_overstrike_mode_label->configure
+		(text=> "$overstrke_insert");
+
+	my $filename = $textwindow->FileName;
+	$filename = 'NoName' unless(defined($filename));
+	my $edit_flag='';
+	if($textwindow->numberChanges) 
+ 		{$edit_flag='edited';}
+	$top->configure(-title => "Gedi  $edit_flag $filename");
+	$textwindow->idletasks;
+
+}
+
+$textwindow->SetGUICallbacks (
+ [
+  \&update_indicators, 
+  sub{$textwindow->HighlightAllPairsBracketingCursor}
+ ] 
+);
+
+
+##############################################
+##############################################
+# call back functions
+##############################################
+##############################################
+
+########################################################################
+my $about_pop_up_reference;
+sub about_pop_up
+{
+	my $name = ref($about_pop_up_reference);
+	if (defined($about_pop_up_reference))
+		{
+		$about_pop_up_reference->raise;
+		$about_pop_up_reference->focus;
+		}
+	else
+		{
+		my $pop = $top->Toplevel();
+		$pop->title("About");
+	
+		$pop->Label(text=>"Gedi (Gregs EDItor)")->pack();
+		$pop->Label(text=>"Ver. 1.0")->pack();
+		$pop->Label(text=>"Copyright 1999")->pack();
+		$pop->Label(text=>"Greg London")->pack();
+		$pop->Label(text=>"All Rights Reserved.")->pack();
+		$pop->Label(text=>"This program is free software.")->pack();
+		$pop->Label(text=>"You can redistribute it and/or")->pack();
+		$pop->Label(text=>"modify it under the same terms")->pack();
+		$pop->Label(text=>"as Perl itself.")->pack();
+		$pop->Label(text=>"Special Thanks to")->pack();
+		$pop->Label(text=>"Nick Ing-Simmons.")->pack();
+
+		my $button_ok = $pop->Button(text=>'OK',
+			command => sub {$pop->destroy();
+			$about_pop_up_reference = undef;
+			} )
+			->pack();
+		$pop->resizable('no','no');
+		$about_pop_up_reference = $pop;
+		}
+}
+
+##############################################
+##############################################
+## now set up menu bar
+##############################################
+##############################################
+
+my $menu = $textwindow->menu;
+$top->configure(-menu => $menu);
+
+##############################################
+# help menu
+##############################################
+my $help_menu = $menu->cascade(-label=>'~Help', -tearoff => 0, -menuitems => [
+         [Command => 'A~bout', -command => \&about_pop_up]
+         ]);
+
+
+
+##############################################
+# use this subroutine to insert a POD marker around selected text
+# or to insert a blank template at current 'insert' marker.
+##############################################
+
+sub insert_block_marker
+{
+	$textwindow->addGlobStart;
+
+	my $marker=shift(@_);
+
+	my @ranges=$textwindow->tagRanges('sel');
+	my $range_total=@ranges;
+
+	if($range_total==0)
+		{
+		$textwindow->insert('insert', $marker.'<TEXTHERE>');
+
+		}
+	else
+		{
+		while(@ranges)
+			{
+			my $end = pop(@ranges);
+			my $start = pop(@ranges);
+			$textwindow->insert($end, '>');
+
+			my $index=$start;
+			while($textwindow->compare($index, '<', $end))
+				{
+				my $char = $textwindow->get($index);
+				if($char eq '<')
+					{
+					$textwindow->delete($index);
+					$textwindow->insert($index, 'E<lt>');
+					$index=$textwindow->index($index.' + 5 chars ');
+					}
+				elsif($char eq '>')
+					{
+					$textwindow->delete($index);
+					$textwindow->insert($index, 'E<gt>');
+					$index=$textwindow->index($index.' + 5 chars ');
+					}
+				else
+					{
+					$index=$textwindow->index($index.' + 1 chars ');
+					}
+					
+				}
+
+			$textwindow->insert($start, $marker.'<');
+			}
+		}
+
+	$textwindow->addGlobEnd;
+
+}
+
+
+##############################################
+# add the POD pulldown menu.
+##############################################
+
+$menu->cascade(-label=>'~Pod', -tearoff=>0, -menuitems => 
+	[
+		[Command => 'tkpod', -command => sub
+			{
+			my $filename = $textwindow->FileName;
+			my $cmd = "tkpod $filename &";
+			# warn $cmd;
+			system($cmd);
+			}
+		],
+
+		'',
+
+		[Command => 'Start of POD', -command => 
+			sub{ $textwindow->insert('insert linestart',"\n=pod\n\n");}
+		],
+
+		[Command => 'End of POD', -command => 
+			sub{ $textwindow->insert('insert linestart',"\n=cut\n\n");}
+		],
+
+		'',
+
+		[Command => 'Header1', -command => 
+			sub{ $textwindow->insert('insert linestart', 
+				'=head1 HEADERNAMEHERE '); }
+		],
+
+		[Command => 'Header2', -command => 
+			sub{ $textwindow->insert('insert linestart', 
+				'=head2 HEADERNAMEHERE '); }
+		],
+
+
+		'',
+
+		[Command => 'Bulleted Items', -command => 
+			sub{ $textwindow->insert('insert linestart', 
+				"=over 4\n\n=item *\n\nITEMNAMEHERE\n\n"
+				."=item *\n\nITEMNAMEHERE\n\n=back\n\n"); }
+		],
+
+		'',
+
+		[Command => 'Italicize', -command => 
+			sub{ insert_block_marker('I'); }
+		],
+
+		[Command => 'Bold', -command => 
+			sub{ insert_block_marker('B'); }
+		],
+
+		[Command => 'nonbreaking Spaces', -command => 
+			sub{ insert_block_marker('S'); }
+		],
+
+		[Command => 'Code', -command => 
+			sub{ insert_block_marker('C'); }
+		],
+
+		[Command => 'File', -command => 
+			sub{ insert_block_marker('F'); }
+		],
+
+		[Command => 'Index', -command => 
+			sub{ insert_block_marker('X'); }
+		],
+
+		'',
+
+		[Command => 'Link', -command => 
+			sub{ insert_block_marker('L'); }
+		],
+
+
+
+	]);
+
+##############################################
+# debug menu
+##############################################
+
+if (0)
+	{
+	my $debug_menu = $menu->cascade(-label=>'debug', -underline=>0);
+
+
+	$debug_menu->command(-label => 'Tag names', -underline=> 0 ,
+		-command => 
+		sub{ 
+		my @tags = $textwindow->tagNames(); 
+		print " @tags\n"; 
+
+		foreach my $tag (@tags)
+			{
+			my @ranges = $textwindow->tagRanges($tag);
+			print "tag: $tag  ranges: @ranges \n";
+			}
+
+		print "\n\n\n";
+		my @marks = $textwindow->markNames;
+		print " @marks \n";
+		foreach my $mark (@marks)
+			{
+			my $mark_location = $textwindow->index($mark);
+			print "$mark is at $mark_location\n";
+			}
+
+
+		print "\n\n\n";
+		my @dump = $textwindow->dump ( '-tag', '1.0', '465.0' );
+		print "@dump \n";
+
+		print "\n\n\n";
+		print "showing tops children:";
+		my @children = $top->children();
+		print "@children\n";
+
+		foreach my $child (@children)
+			{
+			my $junk = ref($child);
+			print "ref of $child is $junk \n";
+			}
+
+		my $overstrike = $textwindow->OverstrikeMode;
+		print "Overstrike is $overstrike \n";
+
+		$textwindow->dump_array($textwindow);
+		});
+	}
+
+##############################################
+# set the window to a normal size and set the minimum size
+$top->minsize(30,1);
+$top->geometry("80x24");
+
+#############################################################################
+#############################################################################
+#############################################################################
+#############################################################################
+
+
+###########################################
+# check command line parameter.
+# if none, start with file called 'NewFile'
+# if -help, print help
+# if filename, open file or die
+# note, wildcard automatically gets handled by perl interpreter,
+#	so that @ARGV contains list of matches.
+###########################################
+my $argcount = @ARGV;
+my ($global_filename) = @ARGV;
+
+if	($argcount>1) 
+	{
+	print "\n";
+	print "ERROR: too many files specified. \n";
+	die "\n";
+	}
+
+if ($argcount == 0)
+	{$global_filename = 'NoName';}
+
+if (
+	($global_filename eq 'help') ||
+	($global_filename eq '-help') ||
+	($global_filename eq '-h') ||
+	($global_filename eq '-?')
+    )
+	{
+	while(<DATA>)
+		{$textwindow->insert('insert',$_);}
+	$textwindow->ResetUndo;
+	}
+
+
+# want FileSelect to use the last used directory as the starting directory
+# store directory in $global_directory.
+my $global_directory = dirname($global_filename);
+
+
+##############################################
+## this line for debug
+## $top->bind('<Key>', [sub{print "ARGS: @_\n";}, Ev('k'), Ev('K') ]  );	
+
+##########################################
+## fill the text window with initial file.
+
+if ($argcount)
+	{
+	if (-e $global_filename) # if it doesn't exist, make it empty
+		{
+		# it may be a big file, draw the window, and then load it
+		# so that we know something is happening.
+		$top->update;
+		$textwindow->Load($global_filename);
+		}
+	}
+
+
+##############################################
+$textwindow->CallNextGUICallback;
+
+MainLoop();
+
+
+__DATA__
+
+
+Tk800.015 contains many modifications to the 
+text based modules, as well as new text modules 
+and an application that uses them all.
+Text.pm, TextUndo.pm, TextEdit.pm, and gedi
+have all been updated since the release prior
+to Tk800.015.  
+
+The Tk Text related modules have been updated again
+as of Tk-800.026
+
+This demo contains a rundown of all the features
+of the text modules, and this 'gedi' script.
+
+What is available in the text modules?
+================================================
+
+Text.pm 
+========
+
+Text.pm is the base text editing module.
+Beyond the core functionality of typing text,
+Text.pm has built in menu support for basic
+editing features such as Find/Replace text,
+Copy/Cut/Paste, Goto Line Number, and What
+Line Number queries.
+
+These functions are available simply by right
+clicking the mouse over the text area. Doing
+so will cause a pop-up menu to appear which will
+contain cascading menus to give access to all of 
+these new functions.
+
+Many of these functions will create their own 
+pop-up windows. Find/Replace will create a pop-up
+window which contains an entry for text to
+find, an entry for replace text, a number of
+radio buttons to control options such as 
+case sensitivity, and several command buttons to
+perform functions such as Find, Find All, 
+Replace, Replace All.
+
+All of these features have corresponding methods
+built into the Text widget. This allows the basic
+functions to be built into the widget, and also
+allows added features to be built on the lower
+level methods as needed. No one should have to
+reinvent the wheel when it comes to text editing
+features.
+
+Insert and Overstrike modes are also supported
+in the Text.pm module. Pressing the <Insert>
+key will toggle modes back and forth.
+
+Column based copy/cut/paste features are also
+available in the Text.pm module. They are bound
+to the following keys:
+
+<F1> clipboardColumnCopy 
+<F2> clipboardColumnCut 
+<F3> clipboardColumnPaste 
+
+Currently, column based operations are beta versions.
+They compensate for tabs, but they will not behave 
+properly unless the text is all the same font, and 
+is the same width per character.
+
+Hopefully some future version of Text.pm will correct
+for this deficiency.
+
+Column paste should work with overstrike mode.
+
+Here is a text block on which to try column copy/cut/paste:
+
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+abcdefghijklmnopqrstuvwxyz
+
+
+
+TextUndo.pm
+=============
+
+TextUndo.pm is the second level module, being
+derived from the Text.pm module. As it's name 
+implies, TextUndo supports "UNDO" capability.
+It now also supports "REDO" capability.
+
+Undo/redo works on user typed commands and
+also programmatically, so that any application
+that causes text to be inserted or deleted
+can be undone/redone, whether it was directly
+typed by the user or indirectly through another
+method.
+
+The undo/redo functions support tags, so that
+if you delete text with tags, undo will re-insert
+the text and re-tag it as well. This will eventually
+allow the text modules to support more sophisticated
+word processing type features. Such functionality
+should be available in a future release of the 
+text modules.
+
+The TextUndo.pm module also has several added 
+features to support file based operations.
+File based methods include ->Save, ->Load, and
+->Include. All methods take a filename as a 
+parameter. These methods will create a progress 
+widget to indicate the progress of the operation.
+
+The other feature of the TextUndo.pm module
+is the ConfirmDiscard method. This method checks to
+see if the text has been modified since it was
+last saved. If it has been modified, and the
+it will create a pop-up menu asking the user
+if they want to save the text to a file before
+exiting. This method can easily be tied into 
+the exit routines, and signal handlers, to provide
+a consistent "save before exit?" feel.
+
+TextEdit.pm
+=============
+
+The TextEdit.pm is a new module in prototype version
+which adds further features to the text modules.
+TextEdit is based off of the TextUndo module,
+and so has all of the features of TextUndo and
+Text. 
+
+Features of the TextEdit.pm module include 
+parenthesis matching. The module looks at the
+current cursor position and then tries to find
+the parenthesis that bracket the cursor.
+Character pairs that are searched for are:
+() {} [] "" ''
+
+It also checks the position of the pairs to
+try to highlight bad positions. The module
+assumes that if the pairs are not on the same
+line or not on the same column, then there
+might be a missing parenthesis somewhere.
+Characters that appear to not align are
+highlighted in red.
+
+(quotations must start and end on the same line)
+
+
+PARENTHISIS MATCHING DEMO:
+move the cursor to the x between the quotes
+on the line below:
+
+
+{
+		(  )
+	(	{  	}
+		[
+	'	">> x <<"	'
+	[]	]
+	)
+
+}
+
+PARENTHESIS MISMATCHING DEMO:
+move the cursor to the x between the quotes
+on the line below:
+
+
+{
+		(  )
+	 ( <<RED possible error		{  	}
+		[
+	'	">> x <<"	'
+	[]	]
+	) <<RED possible error
+
+}
+
+
+
+Another feature of the TextEdit module is support
+for application level indicators which reflect
+the status of certain internals.  The line and
+column position of the cursor, the total length
+of the file, whether the widget is in insert or
+overstrike mode.  Anytime anything occurs that could 
+affect these values, a user supplied callback
+is invoked. This callback is supplied by the 
+application so that the application can update
+whatever indicators it uses, however it implements
+them.
+
+One other feature of the TextEdit.pm module is
+block level text indention and block level text
+commenting. If a block of text is selected,
+that text can be indented or unindented wiht
+a single keystroke. It can also be commented 
+out or uncommented as well. The keystroke bindings
+that support this are:
+
+<F5> IndentSelectedLines  
+<F6> UnindentSelectedLines  
+
+<F7> CommentSelectedLines  
+<F8> UncommentSelectedLines  
+
+These bindings only operate on the currently 
+selected text. The indent string and the comment
+string can be programmed to be anything, but 
+defaults to "\t" (tab) for indent and "#" for
+comments.
+
+(currently the widget hash is used to store these values. 
+$w->{'INDENT_STRING'} and $w->{'LINE_COMMENT_STRING'}
+At some point in the future, this will be changed to 
+use configure options to set these values.
+any application that changes these values should do
+so in such a way that when the TextEdit module changes,
+the application can be easily changed to handle this)
+
+
+
+gedi application
+=====================
+gedi is short for Greg's EDItor.
+The "g" is soft, pronounced like a "j".
+
+The gedi application uses all of the features of 
+the text modules, Text, TextUndo, and TextEdit.
+It supplies TextEdit with a callback to update
+the indicator displays. This information includes
+the current cursor position, insert/overstrike
+mode, length of the file, filename, and whether
+the file has been edited or not.
+
+The bottom of this display contains 
+line number
+column number
+total lines
+insert/overstrike mode.
+
+The title bar contains the filename
+and if the file has been edited, the word "edited".
+
+POD Support:
+
+The gedi editor contains an additional menu to
+support POD. 
+
+The Pod pulldown menu allows the user to select:
+
+Start Pod	=> insert marker at start of line
+End Pod		=> insert marker at start of line
+
+Header1		=> insert marker at start of line
+Header2		=> insert marker at start of line
+Bulleted Items	=> insert a template with two items
+
+
+Italicize			=> mark selected text or cursor position
+Bold				=> mark selected text or cursor position
+Non-Breaking Spaces 	=> mark selected text or cursor position
+Code				=> mark selected text or cursor position
+File				=> mark selected text or cursor position
+Index				=> mark selected text or cursor position
+(not only will the selected text be marked, but any characters
+ in the selected block that require it will be converted to their
+ E<> escaped form. )
+
+
+
+
+Installation
+======================
+Where gedi is installed depends on your system,
+but it is part of the tarkit for Tk800.015 and above.
+
+gedi was created to provide an editor with the
+perl tar kit. 
+
+
+
+
+
+
+
